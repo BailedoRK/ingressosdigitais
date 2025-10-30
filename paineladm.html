@@ -580,9 +580,14 @@ async function enter(){
   id('btnSaveCss').addEventListener('click', saveCss);
   id('btnAddCoupon').addEventListener('click', addCoupon);
   id('cpTable').addEventListener('click', handleCouponTable);
-  id('btnExport').addEventListener('click', exportConfig);
-  id('fileImport').addEventListener('change', importConfig);
-  id('btnReset').addEventListener('click', resetConfig);
+  
+  // --- INÍCIO DA CORREÇÃO ---
+  // Binds para funções de Import/Export/Reset que foram removidas (causando o erro):
+  // id('btnExport').addEventListener('click', exportConfig);
+  // id('fileImport').addEventListener('change', importConfig);
+  // id('btnReset').addEventListener('click', resetConfig);
+  // --- FIM DA CORREÇÃO ---
+
   id('filterInput').addEventListener('input', filterSalesTable);
   id('filterPromotora').addEventListener('change', filterSalesTable);
   id('btnRefreshSales').addEventListener('click', refreshAllData);

@@ -957,28 +957,8 @@ async function enviarWhats(){
     ? ['Acompanhantes:'].concat(companions.map((c,i)=>`• ${c.gender} #${i+1}: ${c.name} — +55 ${c.whats}`)) 
     : ['Acompanhantes: (nenhum)'];
 
-  // Salva a venda no Firebase
-  try {
-    await salesRef.add({
-      ts: firebase.firestore.FieldValue.serverTimestamp(), // Usa a hora do servidor
-      nome: formData.nome, 
-      whats: formData.whats, 
-      qM: p.qM, 
-      qF: p.qF, 
-      total: p.total, 
-      promotora: formData.promotora, 
-      genero: formData.genero,
-      ingressoParaMim: formData.ingressoParaMim,
-      instagram: formData.instagramUser,
-      companions: companions,
-      status: 'pending' // Status inicial
-    });
-  } catch (err) {
-    console.error("Erro ao salvar venda: ", err);
-    alert("Houve um erro ao salvar sua venda. Tente novamente.");
-    return;
-  }
-
+  // --- INÍCIO DA CORREÇÃO ---
+  // 1. Montamos a mensagem e a URL primeiro
   const msg=[
     'Comprovante – Bilheteria Online – Baile do RK','--------------------------------',
     `Comprador: ${formData.nome}`,
@@ -999,8 +979,33 @@ async function enviarWhats(){
   const url = 'https://wa.me/' + encodeURIComponent(WHATS_DEST) + '?text=' + encodeURIComponent(msg);
   lastWhatsURL = url;
 
+  // 2. Abrimos o WhatsApp IMEDIATAMENTE (evita bloqueador de pop-up)
   window.open(url, '_blank', 'noopener');
-  setStep(5); // Avança para a tela final
+  
+  // 3. Avançamos para a tela de obrigado
+  setStep(5); 
+
+  // 4. Salvamos no Firebase em segundo plano
+  try {
+    await salesRef.add({
+      ts: firebase.firestore.FieldValue.serverTimestamp(), // Usa a hora do servidor
+      nome: formData.nome, 
+      whats: formData.whats, 
+      qM: p.qM, 
+      qF: p.qF, 
+      total: p.total, 
+      promotora: formData.promotora, 
+      genero: formData.genero,
+      ingressoParaMim: formData.ingressoParaMim,
+      instagram: formData.instagramUser,
+      companions: companions,
+      status: 'pending' // Status inicial
+    });
+  } catch (err) {
+    console.error("Erro ao salvar venda: ", err);
+    // O usuário já está na tela de "Obrigado", apenas registramos o erro no console.
+  }
+  // --- FIM DA CORREÇÃO ---
 }
 
 
