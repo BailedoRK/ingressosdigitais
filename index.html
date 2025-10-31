@@ -212,6 +212,11 @@
     margin-top:14px;padding:12px 14px;border:1px dashed #5b3044;background:#1a1216;color:#ffd6df;border-radius:12px;font-size:13px
   }
   .notice strong{color:#ff9ab1}
+  /* Estilo para aviso de promoção */
+  .notice.promo {
+    border-color: var(--ok); background: #0f1a18; color: #b8f3c2;
+  }
+  .notice.promo strong { color: #fff; }
 
   /* Acompanhantes */
   .comp-row{
@@ -387,6 +392,12 @@
   <section id="step2" class="step">
     <div class="card">
       <h2>Etapa 2: Ingressos</h2>
+      
+      <div id="promo-notice" class="notice promo" style="display:none; margin-bottom: 12px;">
+        <strong>🔥 PROMOÇÃO ATIVA:</strong> Compre Mais, Pague Menos!
+        <ul id="promo-rules-list" style="margin: 6px 0 0 20px; padding: 0;"></ul>
+      </div>
+      
       <div class="row two">
         <div>
           <div class="price-pill">Masculino • <span class="price" id="precoM-label">R$ 0,00</span></div>
@@ -408,7 +419,7 @@
         <button id="btnApplyCoupon" class="btn small" type="button" style="width: auto;">Aplicar</button>
       </div>
       <div id="cupomMsg" class="help"></div>
-      <div id="cupomOk" class="ok-msg" style="display:none">✅ CUPOM ATIVADO COM SUCESSO!</div>
+      <div id="cupomOk" class="ok-msg" style="display:none">✅ CUPOM ATIVADO COM SUCESSO! (Prioridade sobre promoções)</div>
       <div id="cupomErr" class="err-msg" style="display:none; margin-top: 6px;">❌ Cupom inválido.</div>
 
 
@@ -530,7 +541,7 @@ const DEFAULT_CFG = {
     secondary:'#3ca6ff', 
     tertiary: '#ff6b6b',
     radius:14,
-    fabImage: 'https://bailedork.github.io/ingressos/logo-baile.jpg.jpeg' // <-- LOGO ATUALIZADA
+    fabImage: 'https://bailedork.github.io/ingressos/logo-baile.jpg.jpeg'
   },
   texts:{
     heroTitle:'Bilheteria Online',
@@ -543,22 +554,28 @@ const DEFAULT_CFG = {
     thanksText:'Recebemos sua confirmação. Agora é só <strong>enviar o comprovante</strong> no WhatsApp (já abrimos em outra guia para você). Assim que validarmos, você será adicionado ao <strong>grupo exclusivo dos compradores</strong>, onde divulgaremos a <strong>localização e todas as informações oficiais</strong> do evento.'
   },
   payment:{ 
-    pixKey: 'bailedork2025@gmail.com', // <-- SEU DADO CORRIGIDO
-    merchant: 'RICARDO WILLYSMAR PEREIRA', // <-- SEU DADO CORRIGIDO (25 Chars)
-    city: 'RECIFE', // <-- SEU DADO CORRIGIDO
+    pixKey: 'bailedork2025@gmail.com',
+    merchant: 'RICARDO WILLYSMAR PEREIRA',
+    city: 'RECIFE',
     whatsapp:'+5581991405977',
     instagram: 'https://instagram.com/bailedork'
   },
   prices:{ M:25, F:15 },
   coupons:[ 
-    { code:'PRIMEIRO LOTE', M:20, F:10, active:true },
-    { code:'testerk', M:0.01, F:0.01, active:true },
-    { code:'TESTE RK', M:0.01, F:0.01, active:true }
+    { code:'PRIMEIRO LOTE', M:20, F:10, active:true, limit: 50, uses: 0 },
+    { code:'testerk', M:0.01, F:0.01, active:true, limit: 0, uses: 0 },
   ],
   promotoras: [
     "Larissa / Lari","Samara / Mara","Yasmim / Paris","Isa","Adriane / Drih",
     "Ketlyn / Keu","Kaylane / Kayh","Yasmim Lima","Vivian","Bianca"
   ],
+  progressivePromo: {
+    isActive: false,
+    rules: [
+      { type: 'M', minQty: 2, price: 20 },
+      { type: 'F', minQty: 2, price: 10 }
+    ]
+  },
   customCSS:''
 };
 
@@ -574,8 +591,13 @@ async function fetchConfig() {
   try {
     const doc = await configRef.get();
     if (doc.exists) {
-      // CORREÇÃO: Faz o merge profundo para garantir que novos campos existam
+      // Faz o merge profundo para garantir que novos campos existam
       const firebaseData = doc.data();
+      
+      // NOVO: Merge profundo de cupons
+      const defaultCoupon = { limit: 0, uses: 0, active: true };
+      const mergedCoupons = (firebaseData.coupons || []).map(c => ({ ...defaultCoupon, ...c }));
+      
       CONFIG = {
         ...DEFAULT_CFG,
         ...firebaseData,
@@ -583,8 +605,9 @@ async function fetchConfig() {
         texts: { ...DEFAULT_CFG.texts, ...firebaseData.texts },
         payment: { ...DEFAULT_CFG.payment, ...firebaseData.payment },
         prices: { ...DEFAULT_CFG.prices, ...firebaseData.prices },
-        coupons: (firebaseData.coupons && firebaseData.coupons.length > 0) ? firebaseData.coupons : DEFAULT_CFG.coupons,
         promotoras: (firebaseData.promotoras && firebaseData.promotoras.length > 0) ? firebaseData.promotoras : DEFAULT_CFG.promotoras,
+        progressivePromo: { ...DEFAULT_CFG.progressivePromo, ...firebaseData.progressivePromo },
+        coupons: mergedCoupons // Usa o array de cupons mesclado
       };
     } else {
       console.warn("Documento de configuração não encontrado no Firebase. Usando padrão.");
@@ -634,7 +657,7 @@ function quickPhoneValidate(raw){
 }
 function updatePhoneHint(){ const st = id('whatsStatus'); const v = quickPhoneValidate(id('whats').value); st.textContent = v.msg; st.classList.remove('ok','err'); st.classList.add(v.valid ? 'ok' : 'err'); }
 
-/* ===== Cupom & Preços (DINÂMICO) ===== */
+/* ===== Cupom & Preços (LÓGICA ATUALIZADA) ===== */
 let activeCoupon = null;
 function applyCoupon() {
   const v = (id('cupom').value||'').trim().toLowerCase();
@@ -649,39 +672,83 @@ function applyCoupon() {
   setTimeout(() => {
     activeCoupon = CONFIG.coupons.find(c => c.active && c.code.toLowerCase() === v);
     
-    const pM = activeCoupon ? activeCoupon.M : CONFIG.prices.M;
-    const pF = activeCoupon ? activeCoupon.F : CONFIG.prices.F;
-
-    id('precoM-label').textContent = BRL(pM);
-    id('precoF-label').textContent = BRL(pF);
-    computeTotal();
-
-    if(activeCoupon){
-      id('cupomMsg').textContent = 'Cupom aplicado! Preços promocionais ativos.';
-      id('cupomOk').style.display = 'block';
+    // NOVO: Validação de limite de uso
+    if (activeCoupon) {
+      const limit = activeCoupon.limit || 0;
+      const uses = activeCoupon.uses || 0;
+      
+      if (limit > 0 && uses >= limit) {
+        // Cupom atingiu o limite
+        id('cupomMsg').textContent = 'Este cupom promocional está esgotado.';
+        id('cupomErr').style.display = 'block';
+        activeCoupon = null; // Invalida o cupom
+      } else {
+        // Cupom válido
+        id('cupomMsg').textContent = 'Cupom aplicado! Preços promocionais ativos.';
+        id('cupomOk').style.display = 'block';
+      }
     } else {
+      // Cupom não encontrado
       id('cupomMsg').textContent = 'Insira um cupom se possuir.';
       if (v) id('cupomErr').style.display = 'block';
     }
     
+    // Recalcula o total com ou sem o cupom
+    computeTotal(); 
+
     btn.innerHTML = originalText;
     btn.disabled = false;
-  }, 3000); // Delay de 3 segundos
+  }, 1000); // Reduzido para 1s
 }
 
 function resetPrices() {
   activeCoupon = null;
-  id('precoM-label').textContent = BRL(CONFIG.prices.M);
-  id('precoF-label').textContent = BRL(CONFIG.prices.F);
+  // Limpa mensagens de cupom
+  id('cupomOk').style.display = 'none';
+  id('cupomErr').style.display = 'none';
+  id('cupomMsg').textContent = 'Insira um cupom se possuir.';
+  // Recalcula total (vai usar preço base ou promoção)
   computeTotal();
 }
 
-/* ===== Total (DINÂMICO) ===== */
+/* ===== Total (LÓGICA ATUALIZADA) ===== */
 function computeTotal(){
-  const pM = activeCoupon ? activeCoupon.M : CONFIG.prices.M;
-  const pF = activeCoupon ? activeCoupon.F : CONFIG.prices.F;
+  // 1. Começa com os preços BASE
+  let pM = CONFIG.prices.M;
+  let pF = CONFIG.prices.F;
   
-  const qM=Number(id('qtdM').value)||0; const qF=Number(id('qtdF').value)||0;
+  const qM=Number(id('qtdM').value)||0; 
+  const qF=Number(id('qtdF').value)||0;
+  
+  // 2. Verifica PROMOÇÃO PROGRESSIVA (se ativa e sem cupom)
+  if (CONFIG.progressivePromo && CONFIG.progressivePromo.isActive && !activeCoupon) {
+    // Procura a melhor regra (maior qtd mínima) que se aplica
+    const rulesM = CONFIG.progressivePromo.rules
+      .filter(r => r.type === 'M' && qM >= r.minQty)
+      .sort((a, b) => b.minQty - a.minQty); // Ordena do maior p/ menor
+    if (rulesM.length > 0) {
+      pM = rulesM[0].price; // Aplica o preço da melhor regra
+    }
+
+    const rulesF = CONFIG.progressivePromo.rules
+      .filter(r => r.type === 'F' && qF >= r.minQty)
+      .sort((a, b) => b.minQty - a.minQty);
+    if (rulesF.length > 0) {
+      pF = rulesF[0].price;
+    }
+  }
+  
+  // 3. Verifica CUPOM (que SOBRESCREVE tudo)
+  if (activeCoupon) {
+    pM = activeCoupon.M;
+    pF = activeCoupon.F;
+  }
+  
+  // 4. Atualiza os labels de preço na tela
+  id('precoM-label').textContent = BRL(pM);
+  id('precoF-label').textContent = BRL(pF);
+  
+  // 5. Calcula e exibe o total
   const total=qM*pM+qF*pF; 
   id('totalTxt').textContent=BRL(total);
   return {qM,qF,pM,pF,total};
@@ -698,7 +765,6 @@ function validateStep1(){
   formData.instagramUser = id('instagramUser').value.trim();
   
   const veioProm = id('veioPromotora')?.value;
-  // ATUALIZADO AQUI
   if (veioProm === 'sim') {
     formData.promotora = (id('promotoraSelect')?.value||'').trim();
   } else if (veioProm === 'baile') {
@@ -711,8 +777,6 @@ function validateStep1(){
   if(!phone.valid){ alert('WhatsApp inválido: '+phone.msg); return false; }
   if(!formData.genero){ alert('Selecione seu gênero.'); return false; }
   if(!formData.ingressoParaMim){ alert('Informe se um dos ingressos é para você.'); return false; }
-
-  // ATUALIZADO AQUI
   if(veioProm === 'sim' && !formData.promotora) {
     alert('Por favor, selecione a promotora.'); return false;
   }
@@ -745,7 +809,6 @@ function validateStep2(){
 function tlv(id2, value){ const len=String(value.length).padStart(2,'0'); return id2+len+value; }
 function crc16(payload){ let crc=0xFFFF; for(let i=0;i<payload.length;i++){ crc ^= payload.charCodeAt(i) << 8; for(let j=0;j<8;j++){ crc = (crc & 0x8000) ? ((crc<<1)^0x1021) : (crc<<1); crc &= 0xFFFF; } } return crc.toString(16).toUpperCase().padStart(4,'0'); }
 function buildPixEMV({pixKey, merchantName, merchantCity, amount, txid, description}){
-  // Validação CRÍTICA para evitar erro no banco
   if (!pixKey || !merchantName || !merchantCity) {
     alert('Erro: O administrador do site não configurou os dados de pagamento PIX corretamente.');
     return null;
@@ -761,8 +824,6 @@ function buildPixEMV({pixKey, merchantName, merchantCity, amount, txid, descript
 /* ===== Acompanhantes (LÓGICA ATUALIZADA) ===== */
 function getNeededCompanions() {
   let {qM, qF} = computeTotal();
-  
-  // Se o ingresso é para o comprador, subtrai 1 do gênero correspondente
   if (formData.ingressoParaMim === 'sim') {
     if (formData.genero === 'masculino') {
       qM = Math.max(0, qM - 1);
@@ -770,7 +831,6 @@ function getNeededCompanions() {
       qF = Math.max(0, qF - 1);
     }
   }
-  
   return { companionsM: qM, companionsF: qF, total: qM + qF };
 }
 
@@ -796,12 +856,9 @@ function updateCompanionsUI(){
   const listF = id('companionsListF');
   const help = id('companionsHelp');
   const hint = id('companionsHint');
-  
   const { companionsM, companionsF, total } = getNeededCompanions();
-  
   listM.innerHTML = '';
   listF.innerHTML = '';
-  
   if (total > 0) {
     if (companionsM > 0) {
       listM.innerHTML = `<h4 style="margin: 15px 0 5px 0;">Acompanhante(s) Masculino(s)</h4>`;
@@ -815,14 +872,11 @@ function updateCompanionsUI(){
   } else {
      help.textContent = 'Você selecionou 1 ingresso apenas para você. Nenhum acompanhante é necessário.';
   }
-  
-  // Esconde a "Dica" se o ingresso não for para o comprador
   hint.style.display = (formData.ingressoParaMim === 'sim') ? 'block' : 'none';
 }
 function collectCompanions(){
   const { companionsM, companionsF } = getNeededCompanions();
   const arr = [];
-  
   for(let i=1;i<=companionsM;i++){
     const name = (id(`compName_M_${i}`)?.value || '').trim();
     const whats = (id(`compWhats_M_${i}`)?.value || '').replace(/\D+/g,'');
@@ -838,10 +892,8 @@ function collectCompanions(){
 function validateCompanions(){
   const { companionsM, companionsF, total } = getNeededCompanions();
   if (total < 1) return true; // Nenhum acompanhante necessário
-
   const comps = collectCompanions();
   if(comps.length !== total){ alert('Preencha os dados dos acompanhantes.'); return false; }
-  
   // Validação individual
   for(let i=1;i<=companionsM;i++){
     if(!(id(`compName_M_${i}`)?.value || '').trim()){ alert(`Informe o nome do Acompanhante #${i} (Masculino).`); return false; }
@@ -943,22 +995,24 @@ function startModalProgress(durationMs=5000){
 }
 function confirmarPagamento(){ 
   if (id('btnPaid').disabled) return; 
-  launchFireworks(); // NOVO: Lança fogos ao clicar em "Já paguei"
+  launchFireworks();
   startModalProgress(5000); 
 }
 
-/* ===== Vendas (Firebase) ===== */
+/* ===== Vendas (Firebase) - ATUALIZADO ===== */
 async function enviarWhats(){
   if(id('btnWhats').disabled) return;
-  const p = computeTotal();
+  // Pega os preços pM e pF que foram REALMENTE calculados
+  const { pM, pF, qM, qF, total } = computeTotal();
   const companions = collectCompanions();
   
   const linesComp = companions.length 
     ? ['Acompanhantes:'].concat(companions.map((c,i)=>`• ${c.gender} #${i+1}: ${c.name} — +55 ${c.whats}`)) 
     : ['Acompanhantes: (nenhum)'];
+    
+  // NOVO: Adiciona info do cupom na mensagem
+  const cupomInfo = activeCoupon ? `\nCupom Usado: ${activeCoupon.code}\n` : '';
 
-  // --- INÍCIO DA CORREÇÃO ---
-  // 1. Montamos a mensagem e a URL primeiro
   const msg=[
     'Comprovante – Bilheteria Online – Baile do RK','--------------------------------',
     `Comprador: ${formData.nome}`,
@@ -968,44 +1022,41 @@ async function enviarWhats(){
     `Instagram: ${formData.instagramUser || '(não informado)'}`,'',
     `Promotora: ${formData.promotora}`,'',
     'Ingressos:',
-    `• Masculino: ${p.qM} (cada ${BRL(p.pM)})`,
-    `• Feminino: ${p.qF} (cada ${BRL(p.pF)})`,'',
-    ...linesComp,'',
-    `Total pago: ${BRL(p.total)}`,'',
+    `• Masculino: ${qM} (cada ${BRL(pM)})`,
+    `• Feminino: ${qF} (cada ${BRL(pF)})`,'',
+    ...linesComp, cupomInfo, // <-- Cupom adicionado aqui
+    `Total pago: ${BRL(total)}`,'',
     '⚠️ Importante: Não haverá devolução de valor. Localização e demais informações serão divulgadas apenas no grupo exclusivo dos compradores após a confirmação do pagamento.','',
     'Código Pix (copia e cola):', lastEmv ? lastEmv : '(gerar no site)'
   ].join('\n');
 
   const url = 'https://wa.me/' + encodeURIComponent(WHATS_DEST) + '?text=' + encodeURIComponent(msg);
   lastWhatsURL = url;
-
-  // 2. Abrimos o WhatsApp IMEDIATAMENTE (evita bloqueador de pop-up)
   window.open(url, '_blank', 'noopener');
-  
-  // 3. Avançamos para a tela de obrigado
   setStep(5); 
 
-  // 4. Salvamos no Firebase em segundo plano
   try {
+    // NOVO: Salva o cupom usado na venda
+    const couponUsed = activeCoupon ? activeCoupon.code : null;
+    
     await salesRef.add({
-      ts: firebase.firestore.FieldValue.serverTimestamp(), // Usa a hora do servidor
+      ts: firebase.firestore.FieldValue.serverTimestamp(),
       nome: formData.nome, 
       whats: formData.whats, 
-      qM: p.qM, 
-      qF: p.qF, 
-      total: p.total, 
+      qM: qM, 
+      qF: qF, 
+      total: total, 
+      coupon_used: couponUsed, // <-- CAMPO ADICIONADO
       promotora: formData.promotora, 
       genero: formData.genero,
       ingressoParaMim: formData.ingressoParaMim,
       instagram: formData.instagramUser,
       companions: companions,
-      status: 'pending' // Status inicial
+      status: 'pending'
     });
   } catch (err) {
     console.error("Erro ao salvar venda: ", err);
-    // O usuário já está na tela de "Obrigado", apenas registramos o erro no console.
   }
-  // --- FIM DA CORREÇÃO ---
 }
 
 
@@ -1063,7 +1114,6 @@ function applyConfig(cfg) {
   R.setProperty('--accent2', s);
   R.setProperty('--tertiary', t);
   R.setProperty('--r', cfg.theme.radius + 'px');
-  // Converte Hex para RGB para os brilhos
   const hexToRGB = hex => {
     try {
       const r = parseInt(hex.slice(1, 3), 16), g = parseInt(hex.slice(3, 5), 16), b = parseInt(hex.slice(5, 7), 16);
@@ -1073,7 +1123,7 @@ function applyConfig(cfg) {
   R.setProperty('--purple-rgb', hexToRGB(p));
   R.setProperty('--blue-rgb', hexToRGB(s));
   
-  // 2. Textos (Títulos do Header 3D e da Página)
+  // 2. Textos
   id('slogan-hero-title').textContent = cfg.texts.heroTitle;
   id('slogan-hero-subtitle').textContent = cfg.texts.heroSubtitle;
   id('page-h1').textContent = cfg.texts.pageTitle;
@@ -1088,21 +1138,18 @@ function applyConfig(cfg) {
   const list = cfg.promotoras || [];
   select.innerHTML = '<option value="">Selecione</option>' + list.map(p=>`<option value="${p}">${p}</option>`).join('');
 
-  // 4. Links do Instagram (Botão Flutuante e Botão de Agradecimento)
+  // 4. Links do Instagram
   const instaLink = cfg.payment.instagram || '#';
   const fabImg = cfg.theme.fabImage || '';
-  
   const fabLink = id('fab-insta-link');
   const fabImgEl = id('fab-insta-img');
   const thanksBtn = id('btnInstaThanks');
-  
   fabLink.href = instaLink;
   thanksBtn.href = instaLink;
-  
   if (fabImg) {
     fabImgEl.src = fabImg;
   } else {
-    fabLink.style.display = 'none'; // Esconde se não houver imagem
+    fabLink.style.display = 'none';
   }
   if (!instaLink || instaLink === '#') {
     fabLink.style.display = 'none';
@@ -1114,6 +1161,20 @@ function applyConfig(cfg) {
     const styleEl = document.createElement('style');
     styleEl.textContent = cfg.customCSS;
     document.head.appendChild(styleEl);
+  }
+  
+  // 6. Aplica Promoção Progressiva
+  const promoCfg = cfg.progressivePromo || { isActive: false, rules: [] };
+  if (promoCfg.isActive && promoCfg.rules && promoCfg.rules.length > 0) {
+    const noticeBox = id('promo-notice');
+    const rulesList = id('promo-rules-list');
+    rulesList.innerHTML = '';
+    promoCfg.rules.forEach(rule => {
+      const li = document.createElement('li');
+      li.textContent = `• ${rule.minQty} ou mais ${rule.type === 'M' ? 'Masculino(s)' : 'Feminino(s)'} por ${BRL(rule.price)} cada`;
+      rulesList.appendChild(li);
+    });
+    noticeBox.style.display = 'block';
   }
 }
 
@@ -1167,12 +1228,11 @@ function launchFireworks() {
 }
 
 /* ===== INICIALIZAÇÃO ===== */
-// Garante que o script só rode depois que a página carregar
 document.addEventListener('DOMContentLoaded', async function() {
   toast('Carregando bilheteria...');
   await fetchConfig(); // Busca as configs da nuvem
   applyConfig(CONFIG); // Aplica as configs
-  resetPrices(); // Garante que os preços base sejam carregados
+  resetPrices(); // Garante que os preços base (ou promo) sejam carregados
   updatePhoneHint(); 
   setStep(1);
   createConfetti(); // Inicia a animação
@@ -1186,7 +1246,7 @@ document.addEventListener('DOMContentLoaded', async function() {
   // Cupom
   id('cupom').addEventListener('input', ()=>{ resetPrices(); });
   id('btnApplyCoupon').addEventListener('click', applyCoupon);
-  // Quantidade
+  // Quantidade (recalcula promoções)
   id('qtdM').addEventListener('change', ()=>{ computeTotal(); });
   id('qtdF').addEventListener('change', ()=>{ computeTotal(); });
   // WhatsApp

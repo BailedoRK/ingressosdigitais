@@ -70,7 +70,7 @@
   #detailsContent .comp-list div { padding-left: 10px; }
   @keyframes pop{from{transform:scale(.95);opacity:0}to{transform:scale(1);opacity:1}}
   
-  /* Alerta de Configuração (NOVO) */
+  /* Alerta de Configuração */
   #config-alert {
     display: none; /* Oculto por padrão */
     padding: 12px 16px;
@@ -140,6 +140,7 @@
       <button class="tab" data-tab="payment">💳 Config. Pagamento</button>
       <button class="tab" data-tab="prices">💲 Preços</button>
       <button class="tab" data-tab="coupons">🎟️ Cupons</button>
+      <button class="tab" data-tab="promo">🎁 Promoções</button>
       <button class="tab" data-tab="advanced">⚙️ Avançado (CSS)</button>
     </div>
     
@@ -297,10 +298,55 @@
         <div><label>Código (exato)</label><input id="cpCode" type="text" placeholder="PRIMEIRO LOTE"></div>
         <div><label>Preço M (R$)</label><input id="cpM" type="number" step="0.01" min="0" placeholder="20"></div>
         <div><label>Preço F (R$)</label><input id="cpF" type="number" step="0.01" min="0" placeholder="10"></div>
-        <div class="row" style="align-items:flex-end"><button id="btnAddCoupon" class="btn">Adicionar/Atualizar</button></div>
+        <div><label>Limite de Uso (0=ilimitado)</label><input id="cpLimit" type="number" step="1" min="0" value="0" placeholder="0"></div>
+        <div class="row" style="align-items:flex-end">
+          <button id="btnAddCoupon" class="btn">Adicionar/Atualizar</button>
+        </div>
       </div>
+      
+      <div class="row" style="margin-top: 10px;">
+        <button id="btnSyncCouponUses" class="btn secondary">🔄 Sincronizar Usos de Cupons</button>
+        <p class="muted" style="margin:0">Clique aqui para recalcular os usos (baseado em vendas pagas) e desativar cupons esgotados.</p>
+      </div>
+      
       <table class="table" id="cpTable">
-        <thead><tr><th>Código</th><th>Masculino</th><th>Feminino</th><th>Status</th><th>Ações</th></tr></thead>
+        <thead><tr><th>Código</th><th>Masculino</th><th>Feminino</th><th>Usos (Pago / Limite)</th><th>Status</th><th>Ações</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+    
+    <div id="promo" class="pane">
+      <h3>🎁 Promoções Progressivas (Compre Mais, Pague Menos)</h3>
+      <p class="muted">Crie regras de desconto por quantidade. Ex: "2 ou mais Ingressos M por R$ 20,00".<br>
+      <strong>Importante:</strong> Um cupom aplicado <strong>sempre terá prioridade</strong> sobre a promoção progressiva.</p>
+      
+      <div class="row" style="margin-bottom: 12px;">
+        <button id="btnTogglePromo" class="btn success" style="width: 250px;">Ativar/Desativar Promoções</button>
+      </div>
+      
+      <div class="row">
+        <div>
+          <label>Tipo de Ingresso</label>
+          <select id="promoType">
+            <option value="M">Masculino</option>
+            <option value="F">Feminino</option>
+          </select>
+        </div>
+        <div>
+          <label>Quantidade Mínima (Ex: 2)</label>
+          <input id="promoMinQty" type="number" step="1" min="2" placeholder="2">
+        </div>
+        <div>
+          <label>Preço Unitário (R$)</label>
+          <input id="promoPrice" type="number" step="0.01" min="0" placeholder="20">
+        </div>
+        <div class="row" style="align-items:flex-end">
+          <button id="btnAddPromoRule" class="btn">Adicionar Regra</button>
+        </div>
+      </div>
+      
+      <table class="table" id="promoTable">
+        <thead><tr><th>Tipo</th><th>Qtd. Mínima</th><th>Preço Unitário</th><th>Ações</th></tr></thead>
         <tbody></tbody>
       </table>
     </div>
@@ -356,7 +402,7 @@ const DEFAULT_CFG = {
     secondary:'#3ca6ff', 
     tertiary: '#ff6b6b',
     radius:14,
-    fabImage: 'https://bailedork.github.io/ingressos/logo-baile.jpg.jpeg' // <-- LOGO ATUALIZADA
+    fabImage: 'https://bailedork.github.io/ingressos/logo-baile.jpg.jpeg'
   },
   texts:{
     heroTitle:'Bilheteria Online',
@@ -369,22 +415,29 @@ const DEFAULT_CFG = {
     thanksText:'Recebemos sua confirmação. Agora é só <strong>enviar o comprovante</strong> no WhatsApp (já abrimos em outra guia para você). Assim que validarmos, você será adicionado ao <strong>grupo exclusivo dos compradores</strong>, onde divulgaremos a <strong>localização e todas as informações oficiais</strong> do evento.'
   },
   payment:{ 
-    pixKey: 'bailedork2025@gmail.com', // <-- SEU DADO CORRIGIDO
-    merchant: 'RICARDO WILLYSMAR PEREIRA', // <-- SEU DADO CORRIGIDO (25 Chars)
-    city: 'RECIFE', // <-- SEU DADO CORRIGIDO
+    pixKey: 'bailedork2025@gmail.com', 
+    merchant: 'RICARDO WILLYSMAR PEREIRA', 
+    city: 'RECIFE',
     whatsapp:'+5581991405977',
     instagram: 'https://instagram.com/bailedork'
   },
   prices:{ M:25, F:15 },
   coupons:[ 
-    { code:'PRIMEIRO LOTE', M:20, F:10, active:true },
-    { code:'testerk', M:0.01, F:0.01, active:true },  // <-- CUPOM ADICIONADO
-    { code:'TESTE RK', M:0.01, F:0.01, active:true } // <-- CUPOM ADICIONADO
+    // NOVO: Estrutura do cupom com limite
+    { code:'PRIMEIRO LOTE', M:20, F:10, active:true, limit: 50, uses: 0 },
+    { code:'testerk', M:0.01, F:0.01, active:true, limit: 0, uses: 0 },
   ],
   promotoras: [
     "Larissa / Lari","Samara / Mara","Yasmim / Paris","Isa","Adriane / Drih",
     "Ketlyn / Keu","Kaylane / Kayh","Yasmim Lima","Vivian","Bianca"
   ],
+  progressivePromo: {
+    isActive: false,
+    rules: [
+      { type: 'M', minQty: 2, price: 20 },
+      { type: 'F', minQty: 2, price: 10 }
+    ]
+  },
   customCSS:''
 };
 
@@ -423,7 +476,23 @@ async function loadCfg() {
       localConfig = DEFAULT_CFG;
       return DEFAULT_CFG;
     }
-    localConfig = doc.data();
+    // Faz um merge profundo para garantir que novas chaves existam
+    const firebaseData = doc.data();
+    
+    // NOVO: Merge profundo de cupons
+    const defaultCoupon = { limit: 0, uses: 0, active: true };
+    const mergedCoupons = (firebaseData.coupons || []).map(c => ({ ...defaultCoupon, ...c }));
+    
+    localConfig = { 
+      ...DEFAULT_CFG, 
+      ...firebaseData,
+      theme: { ...DEFAULT_CFG.theme, ...firebaseData.theme },
+      texts: { ...DEFAULT_CFG.texts, ...firebaseData.texts },
+      payment: { ...DEFAULT_CFG.payment, ...firebaseData.payment },
+      prices: { ...DEFAULT_CFG.prices, ...firebaseData.prices },
+      progressivePromo: { ...DEFAULT_CFG.progressivePromo, ...firebaseData.progressivePromo },
+      coupons: mergedCoupons // Usa o array de cupons mesclado
+    };
     return localConfig;
   } catch (err) {
     console.error("Erro ao carregar config:", err);
@@ -435,7 +504,7 @@ async function loadCfg() {
 // Salva a configuração no Firebase
 async function saveCfg(cfg) {
   try {
-    await configRef.set(cfg);
+    await configRef.set(cfg, { merge: true }); // Usa merge:true para segurança
     localConfig = cfg; // Atualiza cache local
     toast('Configurações salvas na nuvem.');
   } catch (err) {
@@ -578,16 +647,17 @@ async function enter(){
   id('btnSavePayment').addEventListener('click', savePayment);
   id('btnSavePrices').addEventListener('click', savePrices);
   id('btnSaveCss').addEventListener('click', saveCss);
+  
+  // Binds Cupons
   id('btnAddCoupon').addEventListener('click', addCoupon);
   id('cpTable').addEventListener('click', handleCouponTable);
+  id('btnSyncCouponUses').addEventListener('click', syncCouponUses); // NOVO
   
-  // --- INÍCIO DA CORREÇÃO ---
-  // Binds para funções de Import/Export/Reset que foram removidas (causando o erro):
-  // id('btnExport').addEventListener('click', exportConfig);
-  // id('fileImport').addEventListener('change', importConfig);
-  // id('btnReset').addEventListener('click', resetConfig);
-  // --- FIM DA CORREÇÃO ---
-
+  // Binds Promoções
+  id('btnTogglePromo').addEventListener('click', togglePromo);
+  id('btnAddPromoRule').addEventListener('click', addPromoRule);
+  id('promoTable').addEventListener('click', handlePromoTable);
+  
   id('filterInput').addEventListener('input', filterSalesTable);
   id('filterPromotora').addEventListener('change', filterSalesTable);
   id('btnRefreshSales').addEventListener('click', refreshAllData);
@@ -659,17 +729,34 @@ function renderPrices(cfg){
   id('prBaseM').value = cfg.prices.M;
   id('prBaseF').value = cfg.prices.F;
 }
+
+// ATUALIZADO: renderCoupons
 function renderCoupons(cfg){
   const tbody=id('cpTable').querySelector('tbody'); tbody.innerHTML='';
   (cfg.coupons||[]).forEach((c,idx)=>{
     const tr=document.createElement('tr');
+    
+    const uses = c.uses || 0;
+    const limit = c.limit || 0;
+    const isExhausted = limit > 0 && uses >= limit;
+    
+    let statusPill = '';
+    if (isExhausted) {
+      statusPill = '<span class="pill cancelled">Esgotado</span>';
+    } else {
+      statusPill = c.active ? '<span class="pill paid">Ativo</span>' : '<span class="pill" style="opacity:.6">Inativo</span>';
+    }
+    
     tr.innerHTML=`
       <td>${c.code}</td>
       <td>${BRL(c.M)}</td>
       <td>${BRL(c.F)}</td>
-      <td>${c.active ? '<span class="pill">Ativo</span>' : '<span class="pill" style="opacity:.6">Inativo</span>'}</td>
+      <td>${uses} / ${limit > 0 ? limit : '∞'}</td>
+      <td>${statusPill}</td>
       <td class="row">
-        <button class="btn secondary small" data-act="toggle" data-idx="${idx}">${c.active?'Desativar':'Ativar'}</button>
+        <button class="btn secondary small" data-act="toggle" data-idx="${idx}" ${isExhausted ? 'disabled' : ''}>
+          ${c.active ? 'Desativar' : 'Ativar'}
+        </button>
         <button class="btn small" data-act="edit" data-idx="${idx}">Editar</button>
         <button class="btn danger small" data-act="del" data-idx="${idx}">Remover</button>
       </td>`;
@@ -677,6 +764,38 @@ function renderCoupons(cfg){
   });
 }
 function renderAdvanced(cfg){ id('advCss').value = cfg.customCSS || ''; }
+
+function renderPromos(cfg) {
+  const promoCfg = cfg.progressivePromo || { isActive: false, rules: [] };
+  const tbody = id('promoTable').querySelector('tbody');
+  tbody.innerHTML = '';
+  
+  // Atualiza botão de toggle
+  const btnToggle = id('btnTogglePromo');
+  if (promoCfg.isActive) {
+    btnToggle.textContent = '✅ Promoções ATIVAS (Clique p/ Desativar)';
+    btnToggle.classList.remove('danger');
+    btnToggle.classList.add('success');
+  } else {
+    btnToggle.textContent = '❌ Promoções INATIVAS (Clique p/ Ativar)';
+    btnToggle.classList.remove('success');
+    btnToggle.classList.add('danger');
+  }
+  
+  // Popula tabela
+  (promoCfg.rules || []).forEach((r, idx) => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td>${r.type === 'M' ? 'Masculino' : 'Feminino'}</td>
+      <td>${r.minQty} ou mais</td>
+      <td>${BRL(r.price)}</td>
+      <td class="row">
+        <button class="btn danger small" data-act="del-promo" data-idx="${idx}">Remover</button>
+      </td>`;
+    tbody.appendChild(tr);
+  });
+}
+
 
 /* ===== Promotoras management ===== */
 function renderPromotorasAdmin(cfg){
@@ -756,7 +875,7 @@ function renderSalesTable() {
     const tr = document.createElement('tr');
     // Atributos de dados para facilitar a filtragem
     const searchData = [
-      r.nome, r.whats, r.promotora, r.instagram, r.status
+      r.nome, r.whats, r.promotora, r.instagram, r.status, r.coupon_used
     ].join(' ').toLowerCase();
     tr.dataset.search = searchData;
     tr.dataset.promotora = r.promotora || 'Nenhuma';
@@ -824,7 +943,7 @@ function showDetailsModal(data) {
     <div><strong>WhatsApp:</strong> ${data.whats}</div>
     <div><strong>Instagram:</strong> ${data.instagram || '(não informado)'}</div>
     <div><strong>Promotora:</strong> ${data.promotora || 'Nenhuma'}</div>
-    <div><strong>Gênero:</strong> ${data.genero || 'N/A'}</div>
+    <div><strong>Cupom Usado:</strong> ${data.coupon_used || '(nenhum)'}</div> <div><strong>Gênero:</strong> ${data.genero || 'N/A'}</div>
     <div><strong>Ing. p/ Ele:</strong> ${data.ingressoParaMim || 'N/A'}</div>
     <div><strong>Ing. M:</strong> ${data.qM}</div>
     <div><strong>Ing. F:</strong> ${data.qF}</div>
@@ -875,7 +994,7 @@ function exportFullCSV() {
   }
   
   const header = [
-    'data_hora', 'status_pagamento', 'nome_comprador', 'whatsapp', 'promotora', 
+    'data_hora', 'status_pagamento', 'nome_comprador', 'whatsapp', 'promotora', 'cupom_usado', // NOVO
     'genero_comprador', 'ingresso_para_ele', 'instagram', 
     'qtd_m', 'qtd_f', 'total_brl', 'acompanhantes'
   ];
@@ -889,6 +1008,7 @@ function exportFullCSV() {
       `"${r.nome || ''}"`,
       `"${r.whats || ''}"`,
       `"${r.promotora || 'Nenhuma'}"`,
+      `"${r.coupon_used || ''}"`, // NOVO
       `"${r.genero || ''}"`,
       `"${r.ingressoParaMim || ''}"`,
       `"${r.instagram || ''}"`,
@@ -981,6 +1101,7 @@ async function renderAll(){
   renderPayment(cfg); 
   renderPrices(cfg); 
   renderCoupons(cfg); 
+  renderPromos(cfg);
   renderAdvanced(cfg); 
   renderPromotorasAdmin(cfg);
   bindPromotorasAdmin(); // Re-bind
@@ -1036,23 +1157,35 @@ async function saveCss(){
   await saveCfg(cfg); 
 }
 
-/* Coupons CRUD */
+/* ATUALIZADO: Coupons CRUD */
 async function addCoupon(){
-  const code=(id('cpCode').value||'').trim(); const m=Number(id('cpM').value||0); const f=Number(id('cpF').value||0);
+  const code=(id('cpCode').value||'').trim(); 
+  const m=Number(id('cpM').value||0); 
+  const f=Number(id('cpF').value||0);
+  const limit=Number(id('cpLimit').value||0); // NOVO
+  
   if(!code){ toast('Informe o código.'); return; }
   if(m<=0 && f<=0){ toast('Preços do cupom devem ser > 0.'); return; }
   
   const cfg = { ...localConfig };
   cfg.coupons = (cfg.coupons||[]);
   const idx = cfg.coupons.findIndex(x=>x.code && x.code.trim().toLowerCase()===code.toLowerCase());
-  const obj = {code, M:m, F:f, active:true};
-  if(idx>=0) cfg.coupons[idx]=Object.assign(cfg.coupons[idx], obj);
-  else cfg.coupons.push(obj);
+  
+  // NOVO: Objeto do cupom
+  const obj = {code, M:m, F:f, active:true, limit: limit, uses: 0};
+  
+  if(idx>=0) {
+    // Se está atualizando, mantém os usos antigos, mas atualiza o limite
+    obj.uses = cfg.coupons[idx].uses || 0;
+    cfg.coupons[idx]=Object.assign(cfg.coupons[idx], obj);
+  } else {
+    cfg.coupons.push(obj);
+  }
   
   await saveCfg(cfg); 
   renderCoupons(cfg); 
   toast('Cupom salvo.');
-  id('cpCode').value = ''; id('cpM').value = ''; id('cpF').value = '';
+  id('cpCode').value = ''; id('cpM').value = ''; id('cpF').value = ''; id('cpLimit').value = '0'; // Limpa campos
 }
 async function handleCouponTable(e){
   const act=e.target?.dataset?.act; if(!act) return;
@@ -1072,7 +1205,8 @@ async function handleCouponTable(e){
     const c=cfg.coupons[idx]; 
     id('cpCode').value=c.code; 
     id('cpM').value=c.M; 
-    id('cpF').value=c.F; 
+    id('cpF').value=c.F;
+    id('cpLimit').value = c.limit || 0; // NOVO
     toast('Cupom carregado no formulário para edição.'); 
   }
   if(act==='toggle'){ 
@@ -1081,6 +1215,95 @@ async function handleCouponTable(e){
     renderCoupons(cfg); 
   }
 }
+
+// NOVO: Sincroniza os usos de cupom
+async function syncCouponUses() {
+  toast('Sincronizando... Isso pode levar um momento.');
+  const cfg = { ...localConfig };
+  const sales = localSales; // Usa o cache de vendas já carregado
+  let changed = false;
+  let autoDisabledCount = 0;
+
+  if (sales.length === 0) {
+    toast('Nenhuma venda encontrada para sincronizar.');
+    return;
+  }
+
+  cfg.coupons.forEach(c => {
+    // Conta apenas vendas PAGAS que usaram este cupom
+    const uses = sales.filter(s => 
+      s.status === 'paid' && 
+      s.coupon_used && 
+      s.coupon_used.toLowerCase() === c.code.toLowerCase()
+    ).length;
+    
+    if (c.uses !== uses) {
+      c.uses = uses;
+      changed = true;
+    }
+    
+    // Auto-desativa se o limite for atingido
+    if (c.limit > 0 && c.uses >= c.limit && c.active) {
+      c.active = false;
+      changed = true;
+      autoDisabledCount++;
+    }
+  });
+
+  if (changed) {
+    await saveCfg(cfg);
+    renderCoupons(cfg);
+    toast(`Sincronização concluída! ${autoDisabledCount} cupom(ns) foram desativados por limite.`);
+  } else {
+    toast('Nenhuma alteração nos usos de cupom.');
+  }
+}
+
+
+/* Funções CRUD das Promoções */
+async function togglePromo() {
+  const cfg = { ...localConfig };
+  cfg.progressivePromo.isActive = !cfg.progressivePromo.isActive;
+  await saveCfg(cfg);
+  renderPromos(cfg);
+  toast(`Promoções ${cfg.progressivePromo.isActive ? 'ATIVADAS' : 'DESATIVADAS'}.`);
+}
+async function addPromoRule() {
+  const type = id('promoType').value;
+  const minQty = Number(id('promoMinQty').value);
+  const price = Number(id('promoPrice').value);
+  
+  if (minQty < 2) { toast('Quantidade mínima deve ser 2 ou mais.'); return; }
+  if (price <= 0) { toast('Preço deve ser maior que zero.'); return; }
+  
+  const cfg = { ...localConfig };
+  cfg.progressivePromo.rules = cfg.progressivePromo.rules || [];
+  
+  cfg.progressivePromo.rules.push({ type, minQty, price });
+  cfg.progressivePromo.rules.sort((a, b) => b.minQty - a.minQty); 
+  
+  await saveCfg(cfg);
+  renderPromos(cfg);
+  toast('Regra de promoção adicionada.');
+  id('promoMinQty').value = '';
+  id('promoPrice').value = '';
+}
+async function handlePromoTable(e) {
+  const act = e.target?.dataset?.act;
+  if (act !== 'del-promo') return;
+  
+  const idx = Number(e.target.dataset.idx);
+  const cfg = { ...localConfig };
+  
+  if (!cfg.progressivePromo || !cfg.progressivePromo.rules[idx]) return;
+  
+  if (confirm('Remover esta regra de promoção?')) {
+    cfg.progressivePromo.rules.splice(idx, 1);
+    await saveCfg(cfg);
+    renderPromos(cfg);
+  }
+}
+
 
 /* Export / Import / Reset */
 function exportConfig(){
@@ -1114,9 +1337,15 @@ async function resetConfig(){
 async function refreshAllData() {
   toast('Atualizando dados...');
   await loadSales(); // Recarrega vendas do Firebase
+  
+  // NOVO: Recalcula usos de cupom ao atualizar dados
+  await syncCouponUses(); 
+  
   renderSalesTable();
   renderDashboard();
   renderReport();
+  // renderCoupons(localConfig); // syncCouponUses já faz isso
+  
   toast('Dados atualizados!');
 }
 async function handleSalesTable(e) {
@@ -1133,7 +1362,15 @@ async function handleSalesTable(e) {
     const newStatus = btn.dataset.status;
     btn.disabled = true; // Desabilita botão para evitar clique duplo
     await updateSaleStatus(saleId, newStatus);
-    await refreshAllData(); // Recarrega tudo
+    
+    // ATUALIZADO: Ao invés de recarregar tudo, apenas atualiza o localSales e re-renderiza
+    const saleInCache = localSales.find(s => s.id === saleId);
+    if (saleInCache) saleInCache.status = newStatus;
+    
+    await syncCouponUses(); // Re-sincroniza cupons, pois um status de 'paid' pode ter mudado
+    renderSalesTable();
+    renderDashboard();
+    renderReport();
   }
 }
 
